@@ -1,10 +1,4 @@
-use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
-use sdl2::pixels::Color;
-use sdl2::rect::Point;
-use sdl2::render::Canvas;
-use sdl2::video::Window;
-use glam::Vec2;
+use macroquad::prelude::*;
 use std::time::{Duration, Instant};
 
 const WIDTH: u32 = 600;
@@ -13,6 +7,10 @@ const GRAVITY: Vec2 = Vec2::new(0.0, 750.0);
 const PARTICLE_RADIUS: f32 = 10.0;
 const CENTER: Vec2 = Vec2::new(WIDTH as f32 / 2.0, HEIGHT as f32 / 2.0);
 const FRAMES_BETWEEN_NEW_PARTICLES: u32 = 15;
+
+fn reflect_vec2(vec: Vec2, normal: Vec2) -> Vec2 {
+    vec - 2.0 * vec.dot(normal) * normal
+}
 
 #[derive(Debug, Clone)]
 struct Particle {
@@ -104,10 +102,11 @@ impl VerletSimulation {
 
                 // Reflect the velocity (correctly modify old_pos)
                 let vel = particle.pos - particle.old_pos;
-                particle.old_pos = particle.pos - vel.reflect(n) * 0.999; // Apply damping
+                particle.old_pos = particle.pos - reflect_vec2(vel, n) * 0.999; // Apply damping
             }
         }
     }
+
 
     fn solve_collisions(&mut self) {
         for i in 0..self.particles.len() {
@@ -144,97 +143,49 @@ impl VerletSimulation {
         }
     }
 
-
-    fn draw_circle(&self, canvas: &mut Canvas<Window>, center_x: i32, center_y: i32, r: i32) -> Result<(), String> {
-        let mut x = r;
-        let mut y = 0;
-        let mut dx = 1 - 2 * r;
-        let mut dy = 1;
-        let mut err = 0;
-        
-        while x >= y {
-            canvas.draw_point(Point::new(center_x + x, center_y + y))?;
-            canvas.draw_point(Point::new(center_x + y, center_y + x))?;
-            canvas.draw_point(Point::new(center_x - x, center_y + y))?;
-            canvas.draw_point(Point::new(center_x - y, center_y + x))?;
-            canvas.draw_point(Point::new(center_x - x, center_y - y))?;
-            canvas.draw_point(Point::new(center_x - y, center_y - x))?;
-            canvas.draw_point(Point::new(center_x + x, center_y - y))?;
-            canvas.draw_point(Point::new(center_x + y, center_y - x))?;
-            
-            y += 1;
-            err += dy;
-            dy += 2;
-            if 2 * err + dx > 0 {
-                x -= 1;
-                err += dx;
-                dx += 2;
-            }
-        }
-        Ok(())
-    }
-
-    fn render(&self, canvas: &mut Canvas<Window>) -> Result<(), String> {
+    fn render(&self, update_time: Duration, render_time: Duration) -> Result<(), String> {
         // Clear the screen
-        canvas.set_draw_color(Color::RGB(50, 50, 50));
-        canvas.clear();
+        clear_background(Color::from_rgba(0, 0, 0, 255));
 
-        canvas.set_draw_color(Color::RGB(0, 0, 0));
         // Draw the center
         let center = Vec2::new(WIDTH as f32 / 2.0, HEIGHT as f32 / 2.0);
-        let radius = 250;
-        self.draw_circle(canvas, center.x as i32, center.y as i32, radius - PARTICLE_RADIUS as i32)?;
+        let radius = 250.0;
+        draw_circle(center.x, center.y, radius - PARTICLE_RADIUS, Color::from_rgba(255, 255, 255, 100));
 
         // Draw particles
-        canvas.set_draw_color(Color::RGB(255, 255, 255));
         for particle in &self.particles {
-            let x = particle.pos.x as i32;
-            let y = particle.pos.y as i32;
-            let r = PARTICLE_RADIUS as i32;
+            let x = particle.pos.x;
+            let y = particle.pos.y;
+            let r = PARTICLE_RADIUS;
 
             // Draw a filled circle
-            self.draw_circle(canvas, x, y, r)?;
+            draw_circle(x, y, r, Color::from_rgba(255, 255, 255, 255));
         }
 
-        canvas.present();
+        // Draw debug info
+        draw_text(
+            &format!(
+                "Update time: {:.2}ms\nRender time: {:.2}ms",
+                update_time.as_millis() as f32,
+                render_time.as_millis() as f32
+            ),
+            10.0, 10.0, 20.0, Color::from_rgba(255, 255, 255, 255)
+        );
+
         Ok(())
     }
 }
 
-fn main() -> Result<(), String> {
-    let sdl_context = sdl2::init()?;
-    let video_subsystem = sdl_context.video()?;
-    
-    let window = video_subsystem
-        .window("Verlet Physics Simulation", WIDTH, HEIGHT)
-        .position_centered()
-        .build()
-        .map_err(|e| e.to_string())?;
-    
-    let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
-    
-    let mut event_pump = sdl_context.event_pump()?;
+#[macroquad::main("BasicShapes")]
+async fn main() {
     let mut simulation = VerletSimulation::new();
-
+    
     let dt: f32 = 1.0 / 60.0;
     let mut frame: u32 = 0;
-    let mut update_time: Duration = Duration::new(0, 0);
+    let mut update_time: Duration;
     let mut render_time: Duration = Duration::new(0, 0);
-    
-    'running: loop {
-        // Handle events
-        for event in event_pump.poll_iter() {
-            match event {
-                Event::Quit { .. } | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
-                    break 'running;
-                },
-                Event::KeyDown { keycode: Some(Keycode::Space), .. } => {
-                    println!("Update time: {:?} Render time: {:?}", update_time, render_time);
-                },
-                _ => {}
-            }
-        }
-        
+
+    loop {
         frame += 1;
 
         let mut start = Instant::now();
@@ -245,13 +196,11 @@ fn main() -> Result<(), String> {
         start = Instant::now();
         
         // Render
-        simulation.render(&mut canvas)?;
+        simulation.render(update_time, render_time).unwrap();
 
         render_time = start.elapsed();
-        
+            
         // Cap at 60 FPS
-        std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
+        next_frame().await
     }
-    
-    Ok(())
 }
