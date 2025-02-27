@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 const WIDTH: u32 = 600;
 const HEIGHT: u32 = 600;
 const GRAVITY: Vec2 = Vec2::new(0.0, 750.0);
-const PARTICLE_RADIUS: f32 = 4.0;
+const PARTICLE_RADIUS: f32 = 7.0;
 const CENTER: Vec2 = Vec2::new(WIDTH as f32 / 2.0, HEIGHT as f32 / 2.0);
 const FRAMES_BETWEEN_NEW_PARTICLES: u32 = 1;
 const MAX_PARTICLES: usize = 1000;
@@ -208,7 +208,7 @@ impl VerletSimulation {
     }
 }
 
-#[macroquad::main("BasicShapes")]
+#[macroquad::main("Verlet Simulation")]
 async fn main() {
     let mut simulation = VerletSimulation::new();
     
