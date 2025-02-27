@@ -4,10 +4,10 @@ use std::time::{Duration, Instant};
 const WIDTH: u32 = 600;
 const HEIGHT: u32 = 600;
 const GRAVITY: Vec2 = Vec2::new(0.0, 750.0);
-const PARTICLE_RADIUS: f32 = 8.0;
+const PARTICLE_RADIUS: f32 = 4.0;
 const CENTER: Vec2 = Vec2::new(WIDTH as f32 / 2.0, HEIGHT as f32 / 2.0);
-const FRAMES_BETWEEN_NEW_PARTICLES: u32 = 3;
-const MAX_PARTICLES: usize = 500;
+const FRAMES_BETWEEN_NEW_PARTICLES: u32 = 1;
+const MAX_PARTICLES: usize = 1000;
 
 fn reflect_vec2(vec: Vec2, normal: Vec2) -> Vec2 {
     vec - 2.0 * vec.dot(normal) * normal
@@ -56,7 +56,7 @@ impl VerletSimulation {
     }
 
     fn spawn_particle(&mut self, x: f32, y: f32, dir: f32) {
-        let speed = 6.0;
+        let speed = 4.0;
         let vx = speed * dir.cos();
         let vy = speed * dir.sin();
         self.particles.push(Particle::new(
@@ -64,31 +64,61 @@ impl VerletSimulation {
         ));
     }
 
-    fn update(&mut self, dt: f32, frame: u32) {
+    fn update(&mut self, dt: f32, frame: u32) -> String {
         if frame % FRAMES_BETWEEN_NEW_PARTICLES == 0 && self.particles.len() < MAX_PARTICLES {
             let len = self.particles.len();
-            let dir = len % 20;
-
-            self.spawn_particle(CENTER.x, 100.0, (dir as f32 + 40.0) * 0.1);
+            let dir = len % 40;
+            if dir > 20 {
+                // Spray to the right
+                self.spawn_particle(CENTER.x, 100.0, (80.0 - dir as f32) * 0.1);
+            } else {
+                // Spray to the left
+                self.spawn_particle(CENTER.x, 100.0, (dir as f32 + 40.0) * 0.1);
+            }
         }
 
-        let sub_runs = 8;
+        let sub_runs = 6;
         let sub_dt = dt / sub_runs as f32;
 
+        let mut gravity_time = Duration::new(0, 0);
+        let mut collision_time = Duration::new(0, 0);
+        let mut constraint_time = Duration::new(0, 0);
+        let mut update_time = Duration::new(0, 0);
+        let mut start: Instant;
+
         for _ in 0..sub_runs {
+            start = Instant::now();
             // Apply forces
             for particle in &mut self.particles {
                 particle.accelerate(GRAVITY);
             }
 
+            gravity_time += start.elapsed();
+            start = Instant::now();
+
             self.apply_constraints();
+
+            constraint_time += start.elapsed();
+            start = Instant::now();
+
             self.solve_collisions();
+
+            collision_time += start.elapsed();
+            start = Instant::now();
 
             // Update positions
             for particle in &mut self.particles {
                 particle.update(sub_dt);
             }
+
+            update_time += start.elapsed();
         }
+
+        format!("Gravity: {:.2}ms\nCollisions: {:.2}ms\nConstraints: {:.2}ms\nUpdate: {:.2}ms\n",
+            gravity_time.as_millis(),
+            collision_time.as_millis(),
+            constraint_time.as_millis(),
+            update_time.as_millis())
     }
 
     fn apply_constraints(&mut self) {
@@ -113,34 +143,36 @@ impl VerletSimulation {
 
 
     fn solve_collisions(&mut self) {
-        for i in 0..self.particles.len() {
-            for j in i + 1..self.particles.len() {
-                let (p1, p2) = self.particles.split_at_mut(j);
-                let p1 = &mut p1[i];
-                let p2 = &mut p2[0];
+        let len = self.particles.len();
+        let min_dist_sq = (PARTICLE_RADIUS * 2.0) * (PARTICLE_RADIUS * 2.0);
 
-                let axis = p1.pos - p2.pos;
-                let dist = axis.length();
-                if dist < PARTICLE_RADIUS * 2.0 {
-                    let n: Vec2 = axis / dist; // Normalized direction vector
-                    let delta = PARTICLE_RADIUS * 2.0 - dist;
+        let particles_ptr = self.particles.as_mut_ptr(); // Get raw pointer for fast access
 
-                    // Separate the particles
-                    p1.pos += 0.5 * n * delta;
-                    p2.pos -= 0.5 * n * delta;
+        for i in 0..len {
+            unsafe {
+                let p1 = &mut *particles_ptr.add(i);
+                let (x1, y1) = (p1.pos.x, p1.pos.y);
 
-                    // Velocity correction for realistic bounces
-                    let v1 = p1.pos - p1.old_pos;
-                    let v2 = p2.pos - p2.old_pos;
-                    let relative_velocity = v1 - v2;
+                for j in i + 1..len {
+                    let p2 = &mut *particles_ptr.add(j);
+                    let (x2, y2) = (p2.pos.x, p2.pos.y);
 
-                    let normal_vel = relative_velocity.dot(n);
-                    if normal_vel < 0.0 {
-                        let restitution = 0.7;
-                        let impulse = -normal_vel * restitution * n;
+                    let dx = x1 - x2;
+                    let dy = y1 - y2;
+                    let dist_sq = dx * dx + dy * dy;
 
-                        p1.old_pos -= impulse;
-                        p2.old_pos += impulse;
+                    if dist_sq < min_dist_sq {
+                        // Normalize vector only when needed
+                        let inv_dist = (1.0 / dist_sq.sqrt()) * 0.5;
+                        let n_x = dx * inv_dist;
+                        let n_y = dy * inv_dist;
+                        let delta = PARTICLE_RADIUS * 2.0 - dist_sq.sqrt();
+
+                        // Move particles
+                        p1.pos.x += n_x * delta;
+                        p1.pos.y += n_y * delta;
+                        p2.pos.x -= n_x * delta;
+                        p2.pos.y -= n_y * delta;
                     }
                 }
             }
@@ -190,13 +222,13 @@ async fn main() {
 
         let mut start = Instant::now();
         // Update the simulation with a fixed timestep
-        simulation.update(dt, frame);
+        let timings = simulation.update(dt, frame);
 
         update_time = start.elapsed();
         start = Instant::now();
         
         // Render
-        simulation.render(&format!("Update: {:.2}ms\n Render: {:.2}ms\n Particles: {}\n", update_time.as_millis(), render_time.as_millis(), simulation.particles.len())).unwrap();
+        simulation.render(&format!("Update: {:.2}ms\n Render: {:.2}ms\n Particles: {}\n{}", update_time.as_millis(), render_time.as_millis(), simulation.particles.len(), timings)).unwrap();
 
         render_time = start.elapsed();
             
