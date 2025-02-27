@@ -4,9 +4,10 @@ use std::time::{Duration, Instant};
 const WIDTH: u32 = 600;
 const HEIGHT: u32 = 600;
 const GRAVITY: Vec2 = Vec2::new(0.0, 750.0);
-const PARTICLE_RADIUS: f32 = 10.0;
+const PARTICLE_RADIUS: f32 = 8.0;
 const CENTER: Vec2 = Vec2::new(WIDTH as f32 / 2.0, HEIGHT as f32 / 2.0);
-const FRAMES_BETWEEN_NEW_PARTICLES: u32 = 15;
+const FRAMES_BETWEEN_NEW_PARTICLES: u32 = 3;
+const MAX_PARTICLES: usize = 500;
 
 fn reflect_vec2(vec: Vec2, normal: Vec2) -> Vec2 {
     vec - 2.0 * vec.dot(normal) * normal
@@ -55,7 +56,7 @@ impl VerletSimulation {
     }
 
     fn spawn_particle(&mut self, x: f32, y: f32, dir: f32) {
-        let speed = 0.1;
+        let speed = 6.0;
         let vx = speed * dir.cos();
         let vy = speed * dir.sin();
         self.particles.push(Particle::new(
@@ -64,8 +65,11 @@ impl VerletSimulation {
     }
 
     fn update(&mut self, dt: f32, frame: u32) {
-        if frame % FRAMES_BETWEEN_NEW_PARTICLES == 0 && self.particles.len() < 200 {
-            self.spawn_particle(CENTER.x, 100.0, 0.0);
+        if frame % FRAMES_BETWEEN_NEW_PARTICLES == 0 && self.particles.len() < MAX_PARTICLES {
+            let len = self.particles.len();
+            let dir = len % 20;
+
+            self.spawn_particle(CENTER.x, 100.0, (dir as f32 + 40.0) * 0.1);
         }
 
         let sub_runs = 8;
@@ -143,7 +147,7 @@ impl VerletSimulation {
         }
     }
 
-    fn render(&self, update_time: Duration, render_time: Duration) -> Result<(), String> {
+    fn render(&self, text: &str) -> Result<(), String> {
         // Clear the screen
         clear_background(Color::from_rgba(0, 0, 0, 255));
 
@@ -164,11 +168,7 @@ impl VerletSimulation {
 
         // Draw debug info
         draw_text(
-            &format!(
-                "Update time: {:.2}ms\nRender time: {:.2}ms",
-                update_time.as_millis() as f32,
-                render_time.as_millis() as f32
-            ),
+            text,
             10.0, 10.0, 20.0, Color::from_rgba(255, 255, 255, 255)
         );
 
@@ -196,7 +196,7 @@ async fn main() {
         start = Instant::now();
         
         // Render
-        simulation.render(update_time, render_time).unwrap();
+        simulation.render(&format!("Update: {:.2}ms\n Render: {:.2}ms\n Particles: {}\n", update_time.as_millis(), render_time.as_millis(), simulation.particles.len())).unwrap();
 
         render_time = start.elapsed();
             
